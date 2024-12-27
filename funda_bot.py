@@ -26,8 +26,8 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Messa
 ######################################
 # HARTKODIERTE NIQQAS
 ######################################
-BOT_TOKEN = "8156836003:AAFQHtW3AMO_9HxPBCQ8p7ryEKZdMRau5HQ"
-api_key   = "AIzaSyDBJtx6rLHC8-YbvpSC4ZE4C7ij6f8OCGM"
+BOT_TOKEN = ""
+api_key   = ""
 
 genai.configure(api_key=api_key)
 model = genai.GenerativeModel("gemini-1.5-flash")
