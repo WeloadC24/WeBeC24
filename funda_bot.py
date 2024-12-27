@@ -1,3 +1,4 @@
+cat <<'EOF' > funda_bot.py
 #!/usr/bin/env python3
 
 import os
@@ -20,22 +21,27 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import TimeoutException
 
 from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes
+)
 
+##################################
+# HARTKODIERTER BOT-TOKEN / GEMINI-KEY
+##################################
+BOT_TOKEN = "8156836003:AAFQHtW3AMO_9HxPBCQ8p7ryEKZdMRau5HQ"
+api_key   = "AIzaSyDBJtx6rLHC8-YbvpSC4ZE4C7ij6f8OCGM"
 
-######################################
-# HARTKODIERTE NIQQAS
-######################################
-BOT_TOKEN = ""
-api_key   = ""
-
+# Gemini initialisieren
 genai.configure(api_key=api_key)
 model = genai.GenerativeModel("gemini-1.5-flash")
 
-
-######################################
+##################################
 # USER-AGENTS
-######################################
+##################################
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36",
@@ -45,11 +51,9 @@ USER_AGENTS = [
     "(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
 ]
 
-
-######################################
-# FUNKTIONEN FÜR SCRAPER
-######################################
-
+##################################
+# FUNKTION: Text rewriting via Gemini
+##################################
 def rewrite_description(text: str) -> str:
     if not text or not text.strip():
         return "Keine Beschreibung vorhanden."
@@ -58,7 +62,7 @@ def rewrite_description(text: str) -> str:
         "Übersetze den folgenden Text, der ursprünglich auf Niederländisch geschrieben ist, "
         "ins Deutsche und formuliere ihn in einem professionellen, klaren und leicht verständlichen Ton. "
         "Verbessere leicht den Stil, bleibe aber nah am Inhalt. Entferne bitte jegliche Straßennamen "
-        "und deutliche Location-Hinweise. Schreibe sie in einem Modernen, aber professionellem Stil.\n\n"
+        "und deutliche Location-Hinweise. Schreibe sie in einem modernen, aber professionellen Stil.\n\n"
         f"{text}"
     )
 
@@ -70,24 +74,31 @@ def rewrite_description(text: str) -> str:
     except Exception as e:
         return f"(Fehler bei Gemini: {e})\n\n{text}"
 
+##################################
+# FUNKTION: Cookie-Banner klicken
+##################################
 def akzeptiere_cookies(driver, timeout=10):
     try:
         WebDriverWait(driver, timeout).until(
             EC.visibility_of_element_located((By.ID, "didomi-notice-agree-button"))
         )
-        cookie_button = WebDriverWait(driver, timeout).until(
+        btn = WebDriverWait(driver, timeout).until(
             EC.element_to_be_clickable((By.ID, "didomi-notice-agree-button"))
         )
-        cookie_button.click()
+        btn.click()
         time.sleep(2)
     except TimeoutException:
         pass
 
+##################################
+# FUNKTION: Infos extrahieren
+##################################
 def extrahiere_info(soup):
     quadratmeter = None
     schlafzimmer = None
     beschreibung = None
 
+    # Li-Parsing
     for li in soup.select('li.flex'):
         li_text = li.get_text(" ", strip=True).lower()
         bold_span = li.select_one('span.md\\:font-bold')
@@ -101,11 +112,16 @@ def extrahiere_info(soup):
                 if val.isdigit():
                     schlafzimmer = val
 
+    # Beschreibung
     desc_element = soup.select_one('.listing-description-text')
     if desc_element:
         beschreibung = desc_element.get_text(strip=True)
+
     return quadratmeter, schlafzimmer, beschreibung
 
+##################################
+# FUNKTION: Thumbnails /overzicht
+##################################
 def extrahiere_overview_thumbnail_urls(driver):
     time.sleep(3)
     soup = BeautifulSoup(driver.page_source, "html.parser")
@@ -117,6 +133,9 @@ def extrahiere_overview_thumbnail_urls(driver):
             links.append(href)
     return links
 
+##################################
+# FUNKTION: HQ-Bild aus srcset
+##################################
 def extrahiere_hq_bild(driver):
     try:
         big_image = WebDriverWait(driver, 10).until(
@@ -125,28 +144,32 @@ def extrahiere_hq_bild(driver):
         srcset = big_image.get_attribute("srcset")
         if srcset:
             parts = [p.strip() for p in srcset.split(",")]
-            last = parts[-1]
-            return last.split()[0]
+            last_part = parts[-1]
+            return last_part.split()[0]
         else:
             return big_image.get_attribute("src")
     except:
         return None
 
+##################################
+# FUNKTION: Bilderdownload
+##################################
 def download_bilder(urls, folder, referer):
     os.makedirs(folder, exist_ok=True)
     for i, url in enumerate(urls, start=1):
         try:
             agent = random.choice(USER_AGENTS)
             headers = {"User-Agent": agent, "Referer": referer}
-            r = requests.get(url, headers=headers, timeout=10)
-            r.raise_for_status()
+            resp = requests.get(url, headers=headers, timeout=10)
+            resp.raise_for_status()
 
-            im = Image.open(BytesIO(r.content))
+            im = Image.open(BytesIO(resp.content))
             w, h = im.size
             nw = max(1, w + random.randint(-1, 1))
             nh = max(1, h + random.randint(-1, 1))
             im = im.resize((nw, nh))
 
+            # Minimales Rauschen
             px = im.load()
             for x in range(nw):
                 for y in range(nh):
@@ -163,8 +186,10 @@ def download_bilder(urls, folder, referer):
         except Exception as e:
             print(f"[WARN] Fehler beim Download {url}: {e}")
 
+##################################
+# FUNKTION: Scraper
+##################################
 def funda_scrape(url: str) -> str:
-    # Selenium
     options = webdriver.ChromeOptions()
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
@@ -180,11 +205,12 @@ def funda_scrape(url: str) -> str:
         time.sleep(3)
         akzeptiere_cookies(driver)
 
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        soup = BeautifulSoup(driver.page_source, "html.parser")
         qm, sz, descr = extrahiere_info(soup)
 
-        overview = url.rstrip("/") + "/overzicht"
-        driver.get(overview)
+        # /overzicht
+        over = url.rstrip("/") + "/overzicht"
+        driver.get(over)
         time.sleep(3)
         flinks = extrahiere_overview_thumbnail_urls(driver)
 
@@ -198,9 +224,9 @@ def funda_scrape(url: str) -> str:
             if found:
                 hq_urls.append(found)
 
+        # Ordner
         base_dir = os.path.join(os.getcwd(), "Objekte")
         os.makedirs(base_dir, exist_ok=True)
-
         now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         if qm and sz:
             foldername = f"{qm}qm-{sz}Schlafzimmer-{now}"
@@ -210,12 +236,12 @@ def funda_scrape(url: str) -> str:
         fullp = os.path.join(base_dir, foldername)
         os.makedirs(fullp, exist_ok=True)
 
-        download_bilder(hq_urls, fullp, overview)
+        download_bilder(hq_urls, fullp, over)
 
+        # rewrite
         descr_de = rewrite_description(descr)
-
-        info_file = os.path.join(fullp, "infos.txt")
-        with open(info_file, "w", encoding="utf-8") as f:
+        info_path = os.path.join(fullp, "infos.txt")
+        with open(info_path, "w", encoding="utf-8") as f:
             f.write(f"Quadratmeter: {qm}\n")
             f.write(f"Schlafzimmer: {sz}\n")
             f.write("Beschreibung (Original):\n")
@@ -228,7 +254,6 @@ def funda_scrape(url: str) -> str:
             f.write(descr_de + "\n")
 
         return fullp
-
     finally:
         driver.quit()
 
@@ -237,23 +262,11 @@ def zip_folder(folder_path: str) -> str:
     shutil.make_archive(folder_path, "zip", root_dir=folder_path)
     return zip_path
 
-
-######################################
-# TELEGRAM-BOT
-######################################
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    filters,
-    ContextTypes
-)
-from telegram import Update
-
+##################################
+# TELEGRAM
+##################################
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Hallo! Sende mir eine Funda-URL, und ich sende dir anschließend Bilder + infos.txt als ZIP zurück."
-    )
+    await update.message.reply_text("Hallo! Sende mir eine Funda-URL.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
@@ -261,28 +274,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Einen Moment, ich scrape jetzt...")
         folder = funda_scrape(text)
         zipf = zip_folder(folder)
-
         with open(zipf, "rb") as f:
             await update.message.reply_document(document=f, filename=os.path.basename(zipf))
     else:
         await update.message.reply_text("Bitte eine gültige Funda-URL angeben.")
 
-
 async def main():
-    # Token hartkodiert
-    bot_token = BOT_TOKEN
-    if not bot_token:
-        print("ERROR: BOT_TOKEN ist leer!")
+    if not BOT_TOKEN:
+        print("ERROR: BOT_TOKEN leer!")
         return
 
-    application = ApplicationBuilder().token(bot_token).build()
+    from telegram.ext import ApplicationBuilder
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
+
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.TEXT, handle_message))
 
     print("[INFO] Telegram-Bot startet. Drücke Strg+C zum Beenden.")
     await application.run_polling()
 
-
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(main())
+EOF
